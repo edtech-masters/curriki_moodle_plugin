@@ -186,9 +186,11 @@ class local_curriki_moodle_plugin_external extends external_api {
             $entity_data['module'] = $DB->get_record('modules', array('name' => 'lti'), '*')->id;
             lti_module::set_data($entity_data, $lti_tool_config);
             $lti_module = add_moduleinfo(lti_module::$data, $course);            
+            $playlist_lti = new stdClass();
             $playlist_lti->id = $lti_module->id;
             $playlist_lti->name = $lti_module->name;
         }else{              
+            $playlist_lti = new stdClass();
             $playlist_lti->id = $section_module['id'];
             $playlist_lti->name = $section_module['name'];
         }      
