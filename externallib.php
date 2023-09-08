@@ -10,19 +10,24 @@
 defined('MOODLE_INTERNAL') || die();
 require_once "includes.php";
 
+$iomad_company_admin_lib = realpath(__DIR__ . '/../..') . '/blocks/iomad_company_admin/lib.php';
+if (file_exists($iomad_company_admin_lib)) {
+    require_once $iomad_company_admin_lib;
+}
+
 /**
  * External webservice functions.
  *
  * @package   local_curriki_moodle_plugin
  * @copyright 2020 CurrikiStudio <info@curriki.org>
  */
-
+ 
 class local_curriki_moodle_plugin_external extends external_api {
 
     public static function fetch_course_parameters() {
         return new external_function_parameters(
             array( 'name' => new external_value(PARAM_TEXT, 'course name'),
-                   'project_id' => new external_value(PARAM_INT, 0) 
+                   'project_id' => new external_value(PARAM_INT, 0)
                 )
         );
     }
@@ -38,7 +43,7 @@ class local_curriki_moodle_plugin_external extends external_api {
             $course = $DB->get_record('course', array('id' => $projectcourse->courseid), '*');
 
             if(is_object($course)){
-                $program_course = program_course::get_instance();        
+                $program_course = program_course::get_instance();
                 $course_content = $program_course->get_content($course->id);
                 $section_data = course_section::get_section_data($course_content, SECTION_NAME_FOR_PLAYLIST);
                 foreach ($section_data['modules'] as $key => $module) {
@@ -49,7 +54,7 @@ class local_curriki_moodle_plugin_external extends external_api {
         return ['course' => $course->fullname, 'courseid' => $course->id, 'playlists' => $section_modules];
     }
 
-    public static function fetch_course_returns() {                
+    public static function fetch_course_returns() {
 
         return new external_single_structure(
             array(
@@ -96,23 +101,27 @@ class local_curriki_moodle_plugin_external extends external_api {
             )
         );
 
-        global $DB;     
+        global $DB;
         $parent_data['parent_name'] = $params['parent_name'];
         $parent_data['parent_type'] = $params['parent_type'];
         $parent_data['project_id'] = $params['project_id'];
-        
+
         $entity_data['entity_name'] = $params['entity_name'];
         $entity_data['entity_type'] = $params['entity_type'];
         $entity_data['entity_id'] = $params['entity_id'];
         $entity_data['tool_url'] = $params['tool_url'];
-        
+
         $category_data['org_name'] = $params['org_name'];
         $category_data['grade_name'] = $params['grade_name'];
         $category_data['subject_name'] = $params['subject_name'];
-
+        
         /***** Step-1 fetc/create course against program name *****/
         $projectcourse = $DB->get_record('local_curriki_moodle_plugin', array('projectid' => trim($parent_data['project_id'])), '*');
-        
+        $course_to_validate = $DB->get_record('course', array('id' => $projectcourse->courseid), '*');
+        if (is_object($projectcourse) && !$course_to_validate) {
+            $DB->delete_records('local_curriki_moodle_plugin', array('id' => $projectcourse->id));
+            $projectcourse = null;
+        }
         
         if(!is_object($projectcourse)){
             /* create category */
@@ -123,7 +132,7 @@ class local_curriki_moodle_plugin_external extends external_api {
             }else{
                 $org_cate = core_course_category::create($org_category);
             }
-    
+
             $grade_category = new stdClass();
             $grade_category->name = $category_data['grade_name'];
             $grade_category->parent = $org_cate->id;
@@ -132,7 +141,7 @@ class local_curriki_moodle_plugin_external extends external_api {
             }else{
                 $grade_cate = core_course_category::create($grade_category);
             }
-            
+
             $subject_category = new stdClass();
             $subject_category->name = $category_data['subject_name'];
             $subject_category->parent = $grade_cate->id;
@@ -140,26 +149,26 @@ class local_curriki_moodle_plugin_external extends external_api {
                 $subject_cate = $DB->get_record('course_categories', array('name' => $subject_category->name, 'parent'=>$grade_cate->id), '*');
             }else{
                 $subject_cate = core_course_category::create($subject_category);
-            }            
-            
+            }
+
             $new_course = new stdClass();
             $new_course->fullname = trim($parent_data['parent_name']);
             $new_course->shortname = strtolower( implode( "-",  explode( " ", trim($parent_data['parent_name']) ) ) )."-".time();
             $new_course->categoryid = $subject_cate->id;
             $new_course_rows = core_course_external::create_courses([(array)$new_course]);
-            
+
             //add mapping record into project course mapping table
             $add_project = new stdClass();
             $add_project->projectid = trim($parent_data['project_id']);
             $add_project->projecttitle = trim($parent_data['parent_name']);
             $add_project->courseid = $new_course_rows[0]['id'];
             $DB->insert_record('local_curriki_moodle_plugin', $add_project);
-               
-            
+
+
             $course = $DB->get_record('course', array('id' => $new_course_rows[0]['id']), '*');
             course_create_section($course, 0);
         }
-        else{           
+        else{
             $course = $DB->get_record('course', array('id' => $projectcourse->courseid), '*');
         }
 
@@ -169,11 +178,11 @@ class local_curriki_moodle_plugin_external extends external_api {
         course_section::update_name($course_id, SECTION_ID_FOR_PLAYLIST, SECTION_NAME_FOR_PLAYLIST);
 
         /***** Step-3 Create Playlist LTI *****/
-        $program_course = program_course::get_instance();        
+        $program_course = program_course::get_instance();
         $course_content = $program_course->get_content($course_id);
         $section_data = course_section::get_section_data($course_content, SECTION_NAME_FOR_PLAYLIST);
         $section_module = course_section::get_module_by_name($section_data['modules'], $entity_data['entity_name']);
-        
+
         if(empty($tool_url))
             $lti_tool_config = $DB->get_record('lti_types', array('name' => LTI_TOOL_NAME), '*');
         else{
@@ -182,28 +191,38 @@ class local_curriki_moodle_plugin_external extends external_api {
             $tool_parsed_url =  $parsed_host . $parsed_path;
             $lti_tool_config = $DB->get_record_select('lti_types', $DB->sql_like('baseurl', '?'), array('%'.$tool_parsed_url.'%'));
         }
-        if( is_object($course) && is_object($lti_tool_config) && is_null($section_module) ){          
+        if( is_object($course) && is_object($lti_tool_config) && is_null($section_module) ){
             $entity_data['module'] = $DB->get_record('modules', array('name' => 'lti'), '*')->id;
             lti_module::set_data($entity_data, $lti_tool_config);
-            $lti_module = add_moduleinfo(lti_module::$data, $course);            
+            $lti_module = add_moduleinfo(lti_module::$data, $course);
             $playlist_lti = new stdClass();
             $playlist_lti->id = $lti_module->id;
             $playlist_lti->name = $lti_module->name;
-        }else{              
+        }else{
             $playlist_lti = new stdClass();
             $playlist_lti->id = $section_module['id'];
             $playlist_lti->name = $section_module['name'];
-        }      
-        
+        }
+
+        if (class_exists('\iomad') && class_exists('\company')) {
+            $company_name = $params['org_name'];
+            $company_record = $DB->get_record('company', array('name' => $company_name), '*');
+            if (!$DB->record_exists('company_course', array('companyid' => $company_record->id,
+                                                       'courseid' => $course->id))) {
+                $company = new \company($company_record->id);
+                $company->add_course($course);
+            }
+        }
+
         $obj = new stdClass();
-        $obj->status = "success";        
+        $obj->status = "success";
         $obj->data = $playlist_lti;
 
-        $result[] = $obj;        
+        $result[] = $obj;
         return $result;
     }
 
-    public static function create_playlist_returns() {                
+    public static function create_playlist_returns() {
         return new external_multiple_structure(
             new external_single_structure(
                 array(
@@ -235,15 +254,15 @@ class local_curriki_moodle_plugin_external extends external_api {
         }
     }
 
-    public static function fetch_project_returns() {                
+    public static function fetch_project_returns() {
 
         return new external_single_structure(
             array(
                 'projectid' => new external_value(PARAM_INT, 0)
             )
         );
-    }  
-    
+    }
+
     public static function get_user_projects_parameters() {
         return new external_function_parameters(
             array( 'user_id' => new external_value(PARAM_INT, 0) )
@@ -251,10 +270,10 @@ class local_curriki_moodle_plugin_external extends external_api {
     }
 
     public static function get_user_projects($user_id){
-        $params = self::validate_parameters(self::get_user_projects_parameters(), array('user_id' => $user_id));         
-        global $DB; 
-        $sql = 'select projectid from {user_enrolments} ue 
-                join {enrol} e on e.id = ue.enrolid 
+        $params = self::validate_parameters(self::get_user_projects_parameters(), array('user_id' => $user_id));
+        global $DB;
+        $sql = 'select projectid from {user_enrolments} ue
+                join {enrol} e on e.id = ue.enrolid
                 join {local_curriki_moodle_plugin} lcmp on lcmp.courseid = e.courseid
                 where ue.userid=? AND ue.status=?';
         $studentprojects = $DB->get_records_sql($sql, [trim($params['user_id']), 0]);
@@ -266,7 +285,7 @@ class local_curriki_moodle_plugin_external extends external_api {
                 $stdntprojectid['projectid'] = $project->projectid;
                 $stdntprojectids[] = $stdntprojectid;
             }
-            
+
             return $stdntprojectids;
         //}
         //else{
@@ -274,8 +293,8 @@ class local_curriki_moodle_plugin_external extends external_api {
         //}
     }
 
-    public static function get_user_projects_returns() {         
-        
+    public static function get_user_projects_returns() {
+
         return new external_multiple_structure(
             new external_single_structure(
                 array(
